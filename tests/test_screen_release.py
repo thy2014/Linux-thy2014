@@ -15,6 +15,7 @@ from thyclass.common.screen_release import (
 )
 
 DISPLAY = os.environ.get("DISPLAY")
+WINDOWED = os.name == "nt" or bool(DISPLAY)
 
 _MOCK = textwrap.dedent(
     """
@@ -46,7 +47,7 @@ def _wait(predicate, timeout=4.0, interval=0.05):
     return False
 
 
-@unittest.skipUnless(DISPLAY, "需要 X11 显示（可用 xvfb-run）")
+@unittest.skipUnless(WINDOWED, "需要图形界面（Linux 无头环境可用 xvfb-run）")
 class ScreenReleaseTests(unittest.TestCase):
     def setUp(self):
         env = dict(os.environ)

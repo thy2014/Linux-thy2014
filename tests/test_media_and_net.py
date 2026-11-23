@@ -4,10 +4,12 @@ import unittest
 from thyclass.common.capture import HAS_PIL, ScreenCapture
 from thyclass.common.netcut import NetworkSwitch
 
+WINDOWED = os.name == "nt" or bool(os.environ.get("DISPLAY"))
+
 
 class CaptureTests(unittest.TestCase):
     @unittest.skipUnless(HAS_PIL, "未安装 Pillow")
-    @unittest.skipUnless(os.environ.get("DISPLAY"), "需要 X11 显示（可用 xvfb-run）")
+    @unittest.skipUnless(WINDOWED, "需要图形界面（Linux 无头环境可用 xvfb-run）")
     def test_grab_returns_jpeg(self):
         capture = ScreenCapture(max_width=320, quality=50)
         frame = capture.grab()

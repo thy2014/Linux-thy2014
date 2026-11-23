@@ -40,7 +40,7 @@ dist\ThyClass-Student.exe
 
 ## 3. 键盘锁说明
 
-- 钩子只在 ThyClass 广播窗口激活时安装，广播结束立即卸载；
+- 钩子在广播期间或老师单独下发锁键时安装，解锁/广播结束立即卸载；
 - 钩子不拦截 `Ctrl+Alt+Shift+Q`，也不拦截 `Ctrl+Alt+Del`（系统级，任何程序都拦不住）；
 - 如果程序异常退出，钩子随进程消失，不会残留锁定。
 
@@ -52,7 +52,23 @@ dist\ThyClass-Student.exe
 
 ## 5. 已验证范围
 
-- 代码在 Linux 上完成全部单元测试（38 个用例）；
-- Windows 分支（钩子、ShowWindow、PowerShell 断网）为**静态实现，未在 Windows 11 实机验证**；
-  首次使用请先在测试机确认：广播锁键、紧急解锁、断网/恢复、全屏释放。
-- Windows 11 ARM64 同样适用（Python 与 Pillow 均有 arm64 版本）。
+在 Windows 11（Python 3.13.15、Tk 8.6、Pillow 13.0.0）实机上完成以下验证：
+
+| 项目 | 结果 |
+|---|---|
+| unittest 全量 | 40 个用例通过（3 个仅 X11 / root 的用例跳过） |
+| 低级键盘钩子 | `SetWindowsHookEx(WH_KEYBOARD_LL)` 安装成功，广播期间吞键，卸载后恢复 |
+| 紧急解锁 | 模拟 Ctrl+Alt+Shift+Q，钩子回调触发解锁回调 |
+| 解除全屏广播 | 另一进程弹全屏窗口，`EnumWindows` 识别并 `ShowWindow(SW_MINIMIZE)`，释放后不再出现在列表中 |
+| 系统窗口过滤 | 工具窗口 / DWM cloaked 窗口（输入法、手写画布、系统浮层）不会被误最小化 |
+| 截屏 | Pillow `ImageGrab` 抓屏并编码 JPEG |
+| 广播链路 | 老师端抓屏 → TCP 帧 → 学生端接收；`broadcast_start` / `broadcast_stop` 指令到达 |
+| 断网 | `dry-run` 通过；真实断网/恢复需管理员，请在测试机确认 UAC 与网卡恢复 |
+
+仍需在真实机房确认的项：
+
+- 真实 `Disable-NetAdapter` / `Enable-NetAdapter`（需要管理员，会断开老师端连接）；
+- 不同安全软件对低级键盘钩子的拦截策略；
+- Windows 11 ARM64（代码相同，Python 与 Pillow 均有 arm64 版本）。
+
+首次使用建议先在测试机跑一遍：广播锁键 → 紧急解锁 → 断网/恢复 → 全屏释放。

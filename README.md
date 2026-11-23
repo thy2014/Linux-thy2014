@@ -24,13 +24,15 @@
 | 局域网自动发现 / 断线重连 | 监听 UDP 应答 | 广播 HELLO，失败自动重试 |
 | 查看学生屏幕 | 列表 + 实时画面预览 | 定时截图上报，可随时暂停 |
 | 全屏广播 | 抓取本机屏幕按帧推送 | 全屏接收，覆盖桌面 |
-| 广播时锁定键盘 | 一键锁定 / 解除 | 广播期间拦截键盘，安全阀 `Ctrl+Alt+Shift+Q` |
+| 广播时锁定键盘 | 一键锁定 / 解除（广播中或单独下发） | 广播期间或老师单独锁定时拦截键盘，安全阀 `Ctrl+Alt+Shift+Q` |
 | 群发消息 | 输入文本下发 | 弹窗展示 |
 | 一键断网 | — | 断网 / 恢复网络（需要管理员权限） |
 | 解除本机全屏广播 | — | 通用“全屏窗口释放”，需本机确认 |
 
 平台：**Linux ARM64**（麒麟、统信、Debian/Ubuntu ARM64、树莓派等）与
 **Windows 11** 共用同一套 Python 代码，界面一致。
+Windows 11 已在实机验证键盘钩子、紧急解锁、全屏窗口释放、截屏与广播链路，
+详见 [Windows 说明](docs/DEPLOY-WINDOWS.md#5-已验证范围)。
 
 ## 界面预览
 
@@ -146,12 +148,17 @@ powershell -ExecutionPolicy Bypass -File windows\build-exe.ps1
 
 ## 开发与测试
 
-无头环境用 Xvfb 跑完整测试（38 个用例，覆盖协议、发现、连接、键盘锁、截屏、断网 dry-run、
-GUI 冒烟、跨进程全屏释放）：
+无头环境用 Xvfb 跑完整测试（40 个用例，覆盖协议、发现、连接、键盘锁、截屏、断网 dry-run、
+GUI 冒烟、跨进程全屏释放、Windows 钩子）：
 
 ```bash
+# Linux（无桌面时加 xvfb-run）
 xvfb-run -a python3 -m unittest discover -s tests -v
-# Ran 38 tests ... OK
+# Ran 40 tests ... OK (skipped=2，Windows 专属用例跳过)
+
+# Windows 11
+py -3 -m unittest discover -s tests -v
+# Ran 40 tests ... OK (skipped=3，X11 / root 专属用例跳过)
 ```
 
 截图由 `tools/make_screenshots.py` 在 Xvfb 下生成（`docs/screenshots/`）。

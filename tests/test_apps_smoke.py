@@ -8,9 +8,10 @@ import unittest
 from thyclass.config import DEFAULT_CONFIG, deep_merge
 
 DISPLAY = os.environ.get("DISPLAY")
+WINDOWED = os.name == "nt" or bool(DISPLAY)
 
 
-@unittest.skipUnless(DISPLAY, "需要 X11 显示（可用 xvfb-run）")
+@unittest.skipUnless(WINDOWED, "需要图形界面（Linux 无头环境可用 xvfb-run）")
 class TeacherAppSmokeTests(unittest.TestCase):
     def setUp(self):
         from thyclass.teacher.app import TeacherApp
@@ -38,7 +39,7 @@ class TeacherAppSmokeTests(unittest.TestCase):
         self.assertFalse(self.app._broadcasting)
 
 
-@unittest.skipUnless(DISPLAY, "需要 X11 显示（可用 xvfb-run）")
+@unittest.skipUnless(WINDOWED, "需要图形界面（Linux 无头环境可用 xvfb-run）")
 class StudentAppSmokeTests(unittest.TestCase):
     def setUp(self):
         from thyclass.student.app import StudentApp
@@ -80,6 +81,15 @@ class StudentAppSmokeTests(unittest.TestCase):
         self.app.root.update()
         self.assertIsNone(self.app.overlay)
         self.assertFalse(self.app.broadcast_active)
+
+    @unittest.skipUnless(os.name == "nt", "仅在 Windows 上验证低级键盘钩子锁")
+    def test_teacher_lock_installs_and_releases(self):
+        self.app.root.update()
+        self.app._apply_teacher_lock(True)
+        self.assertIsNotNone(self.app._teacher_lock)
+        self.assertTrue(self.app._teacher_lock.active, self.app._teacher_lock.describe())
+        self.app._apply_teacher_lock(False)
+        self.assertIsNone(self.app._teacher_lock)
 
     def test_frame_callback_from_client_thread_is_marshalled(self):
         # 模拟客户端线程回调：只允许走 root.after，不应崩
