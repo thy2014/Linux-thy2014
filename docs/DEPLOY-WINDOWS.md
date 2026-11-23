@@ -8,7 +8,7 @@ Windows 特有实现：
 | 键盘锁 | `SetWindowsHookEx(WH_KEYBOARD_LL)` 低级钩子，广播期间吞掉按键；`Ctrl+Alt+Shift+Q` 放行 |
 | 解除全屏广播 | `EnumWindows` 找铺满屏幕的窗口，`ShowWindow(SW_MINIMIZE)` |
 | 一键断网 | PowerShell `Disable-NetAdapter` / `Enable-NetAdapter`，非管理员走 UAC 提权 |
-| 截屏 | Pillow `ImageGrab`（多显示器取主屏） |
+| 截屏 | Pillow `ImageGrab`；Windows 上抓取全部显示器（`all_screens=True`） |
 
 ## 1. 直接运行（需要 Python）
 
@@ -41,7 +41,9 @@ dist\ThyClass-Student.exe
 ## 3. 键盘锁说明
 
 - 钩子在广播期间或老师单独下发锁键时安装，解锁/广播结束立即卸载；
-- 钩子不拦截 `Ctrl+Alt+Shift+Q`，也不拦截 `Ctrl+Alt+Del`（系统级，任何程序都拦不住）；
+- 钩子是系统级低级钩子：锁键期间除 `Ctrl+Alt+Shift+Q` 外的按键都会被吞掉，
+  其它全局快捷键也一并失效，解锁后立即恢复；
+- `Ctrl+Alt+Del` 是系统级安全序列，任何程序都拦不住，可用来强制解锁；
 - 如果程序异常退出，钩子随进程消失，不会残留锁定。
 
 ## 4. 一键断网说明
