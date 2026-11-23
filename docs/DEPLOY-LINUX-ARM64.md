@@ -93,7 +93,8 @@ thyclass ALL=(root) NOPASSWD: /usr/bin/nmcli networking off, /usr/bin/nmcli netw
 ## 6. ARM64 注意事项
 
 - 树莓派等设备请确认 `DISPLAY` 指向真实桌面（`:0`），SSH 里跑 GUI 需要 `ssh -X`；
-- X11 下“解除本机全屏广播”可用；**Wayland 会话不支持**其他应用的窗口操作，
+- X11 下“解除本机全屏广播”可用，普通全屏窗口与无边框置顶（override-redirect）的
+  课堂广播窗口都已实测可释放；**Wayland 会话不支持**其他应用的窗口操作，
   请在登录界面选择 “X11 / Xorg” 会话；
 - 屏幕截图依赖 X11；Wayland 下 Pillow 的 ImageGrab 可能失败，建议用 Xorg。
 
@@ -101,6 +102,6 @@ thyclass ALL=(root) NOPASSWD: /usr/bin/nmcli networking off, /usr/bin/nmcli netw
 
 1. 在一台机器上验证 `run_student.py --teacher-host 老师IP`；
 2. 把 `~/.thyclass/config.json` 里的 `teacher_host` 固定为老师 IP，
-   避免校园网屏蔽 UDP 广播；
+避免校园网屏蔽 UDP 广播；
 3. 用 Ansible / scp 分发到 `/opt/thyclass`，统一开 systemd 用户服务；
 4. 老师端固定 IP，端口 45678 写进防火墙白名单。
