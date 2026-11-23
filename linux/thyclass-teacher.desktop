@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ThyClass 老师端
+Comment=局域网课堂广播、查看学生屏幕
+Exec=python3 /opt/thyclass/run_teacher.py
+Icon=applications-education
+Terminal=false
+Categories=Education;Network;
+StartupNotify=true

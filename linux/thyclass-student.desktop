@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ThyClass 学生端
+Comment=接收课堂广播、共享屏幕
+Exec=python3 /opt/thyclass/run_student.py
+Icon=applications-education
+Terminal=false
+Categories=Education;Network;
+StartupNotify=true
