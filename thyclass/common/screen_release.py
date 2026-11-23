@@ -312,6 +312,19 @@ def _windows_windows(exclude_ids: Optional[set] = None) -> List[dict]:
             ("bottom", ctypes.c_long),
         ]
 
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("rcMonitor", RECT),
+            ("rcWork", RECT),
+            ("dwFlags", wintypes.DWORD),
+        ]
+
+    GWL_EXSTYLE = -20
+    WS_EX_TOOLWINDOW = 0x00000080
+    MONITOR_DEFAULTTONEAREST = 2
+    DWMWA_CLOAKED = 14
+
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(RECT)]
     user32.GetWindowRect.restype = wintypes.BOOL
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
@@ -320,17 +333,42 @@ def _windows_windows(exclude_ids: Optional[set] = None) -> List[dict]:
     user32.GetClassNameW.restype = ctypes.c_int
     user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user32.GetWindowTextW.restype = ctypes.c_int
-    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
     user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-    user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
+    user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+    user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+    user32.MonitorFromWindow.restype = wintypes.HMONITOR
+    user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(MONITORINFO)]
+    user32.GetMonitorInfoW.restype = wintypes.BOOL
+    EnumProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [EnumProc, wintypes.LPARAM]
     user32.EnumWindows.restype = wintypes.BOOL
 
-    screen_w = int(user32.GetSystemMetrics(0))
-    screen_h = int(user32.GetSystemMetrics(1))
+    try:
+        dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+        dwmapi.DwmGetWindowAttribute.argtypes = [
+            wintypes.HWND,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.c_uint,
+        ]
+        dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+    except OSError:
+        dwmapi = None
+
     own_pid = int(kernel32.GetCurrentProcessId())
     found: List[dict] = []
-    EnumProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    skip_classes = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}
+    skip_classes = {
+        "Progman",
+        "WorkerW",
+        "Shell_TrayWnd",
+        "Shell_SecondaryTrayWnd",
+        "ShellHandwritingCanvas",
+    }
 
     def class_name(hwnd) -> str:
         buffer = ctypes.create_unicode_buffer(256)
@@ -342,6 +380,28 @@ def _windows_windows(exclude_ids: Optional[set] = None) -> List[dict]:
         user32.GetWindowTextW(hwnd, buffer, 512)
         return buffer.value
 
+    def monitor_size(hwnd):
+        monitor = user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+        if not monitor:
+            return None
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            return None
+        rect = info.rcMonitor
+        return int(rect.right - rect.left), int(rect.bottom - rect.top)
+
+    def is_cloaked(hwnd) -> bool:
+        # UWP / 系统辅助窗口常被 DWM 隐藏（cloaked），虽然 IsWindowVisible
+        # 为真、尺寸也等于屏幕，但不属于用户能看到的窗口。
+        if dwmapi is None:
+            return False
+        value = ctypes.c_int(0)
+        result = dwmapi.DwmGetWindowAttribute(
+            hwnd, DWMWA_CLOAKED, ctypes.byref(value), ctypes.sizeof(value)
+        )
+        return result == 0 and value.value != 0
+
     def callback(hwnd, _lparam):
         try:
             if not user32.IsWindowVisible(hwnd):
@@ -349,6 +409,11 @@ def _windows_windows(exclude_ids: Optional[set] = None) -> List[dict]:
             if exclude_ids and int(hwnd) in exclude_ids:
                 return True
             if class_name(hwnd) in skip_classes:
+                return True
+            if is_cloaked(hwnd):
+                return True
+            # 工具窗口（输入法、手写画布、系统浮层）不当作广播窗口
+            if int(user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)) & WS_EX_TOOLWINDOW:
                 return True
             title = window_title(hwnd)
             if title.strip().lower() in _DESKTOP_TITLES:
@@ -358,7 +423,11 @@ def _windows_windows(exclude_ids: Optional[set] = None) -> List[dict]:
                 return True
             width = int(rect.right - rect.left)
             height = int(rect.bottom - rect.top)
-            if width < screen_w - 2 or height < screen_h - 2:
+            size = monitor_size(hwnd)
+            if size is None:
+                return True
+            monitor_w, monitor_h = size
+            if width < monitor_w - 2 or height < monitor_h - 2:
                 return True
             pid = wintypes.DWORD(0)
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -390,6 +459,8 @@ def _windows_minimize(windows: List[dict]) -> List[str]:
     user32.ShowWindow.restype = wintypes.BOOL
     user32.IsIconic.argtypes = [wintypes.HWND]
     user32.IsIconic.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
     user32.SetWindowPos.argtypes = [
         wintypes.HWND, wintypes.HWND,
         ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint,
@@ -399,10 +470,15 @@ def _windows_minimize(windows: List[dict]) -> List[str]:
     for item in windows:
         hwnd = wintypes.HWND(item["id"])
         try:
+            # 先取消置顶，避免最小化后仍挡在最前
+            user32.SetWindowPos(
+                hwnd, wintypes.HWND(-2), 0, 0, 0, 0, 0x1 | 0x2 | 0x10
+            )
             user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
-            if not user32.IsIconic(hwnd):
-                user32.SetWindowPos(hwnd, wintypes.HWND(1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10)
-            released.append(item["title"])
+            if not user32.IsIconic(hwnd) and user32.IsWindowVisible(hwnd):
+                user32.ShowWindow(hwnd, 0)  # SW_HIDE，兜底
+            if user32.IsIconic(hwnd) or not user32.IsWindowVisible(hwnd):
+                released.append(item["title"])
         except Exception:
             continue
     return released
@@ -419,6 +495,23 @@ def expand_window_ids(window_ids) -> set:
         ids = {int(w) for w in window_ids}
     except (TypeError, ValueError):
         return set()
+    if sys.platform == "win32":
+        # Tk 的 winfo_id() 在 Windows 上是子窗口 HWND，EnumWindows 看到的
+        # 是顶层 HWND，必须映射到 GA_ROOT 才能正确排除本进程窗口。
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+            user32.GetAncestor.restype = wintypes.HWND
+            for start in list(ids):
+                ancestor = user32.GetAncestor(wintypes.HWND(start), 2)  # GA_ROOT
+                if ancestor:
+                    ids.add(int(ancestor))
+        except Exception:
+            pass
+        return ids
     if not sys.platform.startswith("linux") or not (os.environ.get("DISPLAY") or "").strip():
         return ids
     try:
@@ -481,6 +574,7 @@ def release_fullscreen(
     repeats = max(1, int(repeat))
     released_all: List[str] = []
     backend = "none"
+    attempted = 0
 
     for attempt in range(repeats):
         if sys.platform.startswith("linux"):
@@ -494,11 +588,18 @@ def release_fullscreen(
                 backend = "x11"
             except _Unsupported as exc:
                 return ReleaseResult(False, "x11", [], str(exc))
+            attempted = max(attempted, len(windows))
             if windows:
                 released_all.extend(_x11_unmap(windows))
         elif sys.platform == "win32":
             backend = "win32"
-            windows = _windows_windows(exclude_ids)
+            try:
+                windows = _windows_windows(exclude_ids)
+            except Exception as exc:
+                return ReleaseResult(
+                    False, "win32", [], f"枚举 Windows 窗口失败：{exc}"
+                )
+            attempted = max(attempted, len(windows))
             if windows:
                 released_all.extend(_windows_minimize(windows))
         else:
@@ -516,6 +617,13 @@ def release_fullscreen(
 
     if unique:
         return ReleaseResult(True, backend, unique, "已释放全屏窗口：" + "、".join(unique))
+    if attempted:
+        return ReleaseResult(
+            False,
+            backend or ("x11" if sys.platform.startswith("linux") else "win32"),
+            [],
+            f"检测到 {attempted} 个全屏窗口，但无法取消显示（该程序可能使用图形覆盖层或拒绝最小化）",
+        )
     return ReleaseResult(
         False,
         backend or ("x11" if sys.platform.startswith("linux") else "win32"),
