@@ -178,8 +178,12 @@ class NetworkSwitch:
     def _windows_is_admin() -> bool:
         try:
             import ctypes
+            from ctypes import wintypes
 
-            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+            shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+            shell32.IsUserAnAdmin.argtypes = []
+            shell32.IsUserAnAdmin.restype = wintypes.BOOL
+            return bool(shell32.IsUserAnAdmin())
         except Exception:
             return False
 
@@ -187,12 +191,24 @@ class NetworkSwitch:
     def _windows_elevate(script: str) -> bool:
         try:
             import ctypes
+            from ctypes import wintypes
 
-            result = ctypes.windll.shell32.ShellExecuteW(
+            shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+            shell32.ShellExecuteW.argtypes = [
+                wintypes.HWND,
+                wintypes.LPCWSTR,
+                wintypes.LPCWSTR,
+                wintypes.LPCWSTR,
+                wintypes.LPCWSTR,
+                ctypes.c_int,
+            ]
+            # 返回 HINSTANCE：64 位下必须用指针宽度接收，c_int 会被截断
+            shell32.ShellExecuteW.restype = ctypes.c_void_p
+            result = shell32.ShellExecuteW(
                 None, "runas", "powershell.exe",
                 f'-NoProfile -NonInteractive -Command "{script}"', None, 1,
             )
-            return int(result) > 32
+            return bool(result) and int(result) > 32
         except Exception:
             return False
 
