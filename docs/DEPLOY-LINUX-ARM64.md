@@ -102,6 +102,6 @@ thyclass ALL=(root) NOPASSWD: /usr/bin/nmcli networking off, /usr/bin/nmcli netw
 
 1. 在一台机器上验证 `run_student.py --teacher-host 老师IP`；
 2. 把 `~/.thyclass/config.json` 里的 `teacher_host` 固定为老师 IP，
-避免校园网屏蔽 UDP 广播；
+   避免校园网屏蔽 UDP 广播；
 3. 用 Ansible / scp 分发到 `/opt/thyclass`，统一开 systemd 用户服务；
 4. 老师端固定 IP，端口 45678 写进防火墙白名单。
