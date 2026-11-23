@@ -42,6 +42,7 @@ class StudentApp:
         self.overlay: Optional[tk.Toplevel] = None
         self.overlay_canvas: Optional[tk.Canvas] = None
         self.locker = None
+        self._teacher_lock = None
         self._overlay_photo = None
         self._overlay_text = "老师正在广播，请稍候…"
         self._release_busy = False
@@ -159,6 +160,7 @@ class StudentApp:
                 self._detail_var.set(str(msg.get("error", "")))
             elif what == "disconnected":
                 self._status_var.set("与老师端断开，正在重连")
+                self._stop_teacher_lock()
                 if self.broadcast_active:
                     self._stop_broadcast(auto=True)
         elif kind == "bcast":
@@ -175,12 +177,7 @@ class StudentApp:
         elif cmd == "broadcast_stop":
             self._stop_broadcast()
         elif cmd == "lock":
-            locked = bool(msg.get("on"))
-            self._detail_var.set(
-                "老师已锁定键盘（按 Ctrl+Alt+Shift+Q 可解锁）"
-                if locked
-                else "老师已解除键盘锁定"
-            )
+            self._apply_teacher_lock(bool(msg.get("on")))
         elif cmd == "message":
             messagebox.showinfo(
                 "老师消息", str(msg.get("text", "")), parent=self.overlay or self.root
@@ -188,10 +185,85 @@ class StudentApp:
         elif cmd == "share":
             self.set_sharing(bool(msg.get("on")), from_teacher=True)
 
-    # ------------------------------------------------------------------ 广播
+    # ------------------------------------------------------------------ 老师锁键
+    def _apply_teacher_lock(self, locked: bool) -> None:
+        """老师单独下发的锁键指令（不在广播期间）。"""
+        if locked:
+            if self.broadcast_active:
+                self._detail_var.set(
+                    "老师已锁定键盘（广播中，按 Ctrl+Alt+Shift+Q 可解锁）"
+                )
+                return
+            self._start_teacher_lock()
+            return
+        self._stop_teacher_lock()
+        if not self.broadcast_active:
+            self._detail_var.set("老师已解除键盘锁定")
+
+    def _start_teacher_lock(self) -> None:
+        if self._teacher_lock is not None and self._teacher_lock.active:
+            return
+        lock = create_keyboard_lock(
+            self.root, allow_escape=True, on_escape=self._ask_release_teacher_lock
+        )
+        self._teacher_lock = lock
+        lock.start()
+        if lock.active:
+            self._detail_var.set(f"老师已锁定键盘 · {lock.describe()}")
+            return
+        self._teacher_lock = None
+        try:
+            lock.stop()
+        except Exception:
+            pass
+        self._detail_var.set(f"键盘锁定未生效：{lock.describe()}")
+
+    def _stop_teacher_lock(self) -> None:
+        lock = self._teacher_lock
+        self._teacher_lock = None
+        if lock is None:
+            return
+        try:
+            lock.stop()
+        except Exception:
+            pass
+
+    def _ask_release_teacher_lock(self) -> None:
+        lock = self._teacher_lock
+        if lock is None:
+            return
+        # 先放开键盘，否则解锁对话框收不到输入
+        lock.stop()
+        unlock = False
+        try:
+            unlock = messagebox.askyesno(
+                "解除键盘锁定",
+                "确定解除老师锁定的键盘吗？\n该操作会记录并显示在老师端。",
+                parent=self.root,
+            )
+        except tk.TclError:
+            unlock = True
+        if unlock:
+            self._teacher_lock = None
+            if not self.broadcast_active:
+                self._detail_var.set("已解除键盘锁定")
+            self.client.notify(
+                {
+                    "t": "event",
+                    "what": "escape",
+                    "at": time.time(),
+                    "name": self.name,
+                    "source": "teacher_lock",
+                }
+            )
+            return
+        if not self._closing and self._teacher_lock is not None:
+            lock.start()
+
     def _start_broadcast(self) -> None:
         if self.overlay is not None:
             return
+        self._stop_teacher_lock()
         top = tk.Toplevel(self.root)
         top.title("老师广播")
         top.overrideredirect(True)
@@ -220,7 +292,7 @@ class StudentApp:
         self.broadcast_active = True
         self.stop_btn.configure(state="normal")
         detail = "全屏广播接收中"
-        if self.locker is not None and self.locker.active:
+        if self.locker is not None:
             detail += f" · {self.locker.describe()}"
         self._detail_var.set(detail)
 
@@ -453,9 +525,15 @@ class StudentApp:
             if self.client.connected:
                 if self._status_var.get() in ("未连接", "与老师端断开，正在重连"):
                     self._status_var.set("已连接老师端")
-            if self.broadcast_active and self.locker is not None:
-                if not self.locker.active:
-                    self.locker.start()
+            if (
+                self.broadcast_active
+                and self.locker is not None
+                and not self.locker.active
+                # X11 全屏 grab 会因焦点变化失效，需要重试；Windows 钩子
+                # 安装失败时不重试，否则每次都要等 2 秒会卡住界面
+                and self.locker.backend in ("x11-grab", "tk-focus")
+            ):
+                self.locker.start()
         except tk.TclError:
             return
         self._poll_id = self.root.after(500, self._poll)
@@ -476,6 +554,7 @@ class StudentApp:
         except (tk.TclError, AttributeError):
             pass
         self._stop_broadcast(auto=True)
+        self._stop_teacher_lock()
         self.client.stop()
         try:
             self.root.destroy()
